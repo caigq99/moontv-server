@@ -1,0 +1,23 @@
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# binaries
+/moontv-server
+/server
+
+# data
+data/
+
+# env
+.env
+
+# OS
+.DS_Store
+
+# IDE / tools
+.claude/
