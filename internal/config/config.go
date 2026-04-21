@@ -18,10 +18,10 @@ func Load() *Config {
 	return &Config{
 		Port:          getEnvInt("PORT", 8080),
 		DBPath:        getEnv("DB_PATH", "./data/moontv.db"),
-		JWTSecret:     getEnv("JWT_SECRET", "moontv-jwt-secret-change-me"),
-		APIKeySecret:  getEnv("APIKEY_SECRET", "moontv-apikey-secret-32bytes!"),
-		AdminUsername: getEnv("ADMIN_USERNAME", "nineone"),
-		AdminPassword: getEnv("ADMIN_PASSWORD", "nineone666"),
+		JWTSecret:     getEnv("JWT_SECRET", ""),
+		APIKeySecret:  getEnv("APIKEY_SECRET", ""),
+		AdminUsername: getEnv("ADMIN_USERNAME", "admin"),
+		AdminPassword: getEnv("ADMIN_PASSWORD", ""),
 	}
 }
 
