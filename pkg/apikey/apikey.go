@@ -12,8 +12,6 @@ import (
 	"time"
 )
 
-const prefix = "mtv_"
-
 var base62Chars = []byte("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
 
 func base62Encode(data []byte) string {
@@ -54,7 +52,7 @@ func base62Decode(s string) ([]byte, error) {
 
 // Generate creates a new API key for the given user ID.
 // Returns (plaintext_key, ciphertext_for_storage, error).
-func Generate(secret []byte, userID uint) (string, string, error) {
+func Generate(secret []byte, userID uint, prefix string) (string, string, error) {
 	block, err := aes.NewCipher(padKey(secret))
 	if err != nil {
 		return "", "", err
@@ -85,7 +83,7 @@ func Generate(secret []byte, userID uint) (string, string, error) {
 }
 
 // Validate decrypts the API key and returns the user ID.
-func Validate(secret []byte, key string) (uint, error) {
+func Validate(secret []byte, key string, prefix string) (uint, error) {
 	if !strings.HasPrefix(key, prefix) {
 		return 0, errors.New("invalid api key prefix")
 	}

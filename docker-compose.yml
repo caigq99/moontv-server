@@ -1,6 +1,6 @@
 services:
   moontv-server:
-    build: .
+    image: ghcr.io/caigq99/moontv-server:main
     ports:
       - "8080:8080"
     volumes:

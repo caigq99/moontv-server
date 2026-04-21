@@ -10,7 +10,7 @@ import (
 	"github.com/moontv/server/pkg/response"
 )
 
-func APIKeyAuth(secret []byte) gin.HandlerFunc {
+func APIKeyAuth(secret []byte, prefix string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		key := c.GetHeader("X-API-Key")
 		if key == "" {
@@ -22,7 +22,7 @@ func APIKeyAuth(secret []byte) gin.HandlerFunc {
 			return
 		}
 
-		userID, err := apikey.Validate(secret, key)
+		userID, err := apikey.Validate(secret, key, prefix)
 		if err != nil {
 			response.Fail(c, http.StatusUnauthorized, response.ErrInvalidAPIKey, "invalid api key")
 			c.Abort()

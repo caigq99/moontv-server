@@ -15,7 +15,7 @@ func main() {
 	database.Init(cfg.DBPath)
 	database.Seed(cfg.AdminUsername, cfg.AdminPassword)
 
-	r := router.Setup(cfg.JWTSecret, []byte(cfg.APIKeySecret))
+	r := router.Setup(cfg.JWTSecret, []byte(cfg.APIKeySecret), cfg.APIKeyPrefix)
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	log.Printf("server starting on %s", addr)

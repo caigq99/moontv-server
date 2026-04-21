@@ -11,6 +11,7 @@ import (
 
 type APIKeyHandler struct {
 	Secret []byte
+	Prefix string
 }
 
 func (h *APIKeyHandler) Generate(c *gin.Context) {
@@ -27,7 +28,7 @@ func (h *APIKeyHandler) Generate(c *gin.Context) {
 		return
 	}
 
-	plainKey, cipher, err := apikey.Generate(h.Secret, userID)
+	plainKey, cipher, err := apikey.Generate(h.Secret, userID, h.Prefix)
 	if err != nil {
 		response.Fail(c, http.StatusInternalServerError, response.ErrInternal, "failed to generate api key")
 		return

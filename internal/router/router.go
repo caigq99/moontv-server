@@ -12,13 +12,13 @@ import (
 	"github.com/moontv/server/web"
 )
 
-func Setup(jwtSecret string, apikeySecret []byte) *gin.Engine {
+func Setup(jwtSecret string, apikeySecret []byte, apikeyPrefix string) *gin.Engine {
 	r := gin.Default()
 
 	searchCache := cache.NewSearchCache(10 * time.Minute)
 
 	authH := &handler.AuthHandler{JWTSecret: jwtSecret}
-	apikeyH := &handler.APIKeyHandler{Secret: apikeySecret}
+	apikeyH := &handler.APIKeyHandler{Secret: apikeySecret, Prefix: apikeyPrefix}
 	searchH := &handler.SearchHandler{Cache: searchCache}
 	sourceH := &handler.SourceHandler{}
 	adminH := &handler.AdminHandler{}
@@ -40,7 +40,7 @@ func Setup(jwtSecret string, apikeySecret []byte) *gin.Engine {
 
 	// API-key-protected (external API calls)
 	apiKeyGroup := api.Group("")
-	apiKeyGroup.Use(middleware.APIKeyAuth(apikeySecret), middleware.RequestLog())
+	apiKeyGroup.Use(middleware.APIKeyAuth(apikeySecret, apikeyPrefix), middleware.RequestLog())
 	{
 		apiKeyGroup.GET("/search", searchH.Search)
 		apiKeyGroup.GET("/search/sse", searchH.SearchSSE)

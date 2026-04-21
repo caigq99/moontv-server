@@ -6,12 +6,13 @@ import (
 )
 
 type Config struct {
-	Port          int
-	DBPath        string
-	JWTSecret     string
-	APIKeySecret  string // 32 bytes for AES-256-GCM
-	AdminUsername string
-	AdminPassword string
+	Port           int
+	DBPath         string
+	JWTSecret      string
+	APIKeySecret   string // 32 bytes for AES-256-GCM
+	APIKeyPrefix   string
+	AdminUsername  string
+	AdminPassword  string
 }
 
 func Load() *Config {
@@ -20,6 +21,7 @@ func Load() *Config {
 		DBPath:        getEnv("DB_PATH", "./data/moontv.db"),
 		JWTSecret:     getEnv("JWT_SECRET", ""),
 		APIKeySecret:  getEnv("APIKEY_SECRET", ""),
+		APIKeyPrefix:  getEnv("APIKEY_PREFIX", "mtv_"),
 		AdminUsername: getEnv("ADMIN_USERNAME", "admin"),
 		AdminPassword: getEnv("ADMIN_PASSWORD", ""),
 	}
