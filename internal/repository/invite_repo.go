@@ -3,6 +3,7 @@ package repository
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"time"
 
 	"github.com/moontv/server/internal/database"
@@ -19,7 +20,9 @@ func GenerateInviteCodes(createdBy uint, count int, expiresDays int) ([]model.In
 
 	for i := 0; i < count; i++ {
 		b := make([]byte, 8)
-		rand.Read(b)
+		if _, err := rand.Read(b); err != nil {
+		return nil, fmt.Errorf("generate random code: %w", err)
+	}
 		code := model.InviteCode{
 			Code:      hex.EncodeToString(b),
 			CreatedBy: createdBy,
@@ -52,7 +55,9 @@ func MarkInviteUsed(code string, usedBy uint) error {
 func ListInvites(page, pageSize int) ([]model.InviteCode, int64, error) {
 	var codes []model.InviteCode
 	var total int64
-	database.DB.Model(&model.InviteCode{}).Count(&total)
+	if err := database.DB.Model(&model.InviteCode{}).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
 	err := database.DB.Offset((page-1)*pageSize).Limit(pageSize).Order("created_at desc").Find(&codes).Error
 	return codes, total, err
 }

@@ -1,13 +1,13 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/moontv/server/internal/middleware"
-	"github.com/moontv/server/internal/model"
 	"github.com/moontv/server/internal/repository"
 	"github.com/moontv/server/pkg/response"
 	"golang.org/x/crypto/bcrypt"
@@ -83,43 +83,26 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	invite, err := repository.GetInviteByCode(req.InviteCode)
-	if err != nil {
-		response.Fail(c, http.StatusBadRequest, response.ErrInviteInvalid, "invalid invite code")
-		return
-	}
-	if invite.UsedBy != nil {
-		response.Fail(c, http.StatusBadRequest, response.ErrInviteInvalid, "invite code already used")
-		return
-	}
-	if invite.ExpiresAt != nil && time.Now().After(*invite.ExpiresAt) {
-		response.Fail(c, http.StatusBadRequest, response.ErrInviteInvalid, "invite code expired")
-		return
-	}
-
-	if _, err := repository.GetUserByUsername(req.Username); err == nil {
-		response.Fail(c, http.StatusConflict, response.ErrDuplicate, "username already exists")
-		return
-	}
-
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		response.Fail(c, http.StatusInternalServerError, response.ErrInternal, "failed to hash password")
 		return
 	}
 
-	user := &model.User{
-		Username:     req.Username,
-		PasswordHash: string(hash),
-		Role:         "user",
-	}
-	if err := repository.CreateUser(user); err != nil {
-		response.Fail(c, http.StatusInternalServerError, response.ErrInternal, "failed to create user")
+	user, err := repository.RegisterUser(req.Username, string(hash), req.InviteCode)
+	if err != nil {
+		switch {
+		case errors.Is(err, repository.ErrInviteUsed):
+			response.Fail(c, http.StatusBadRequest, response.ErrInviteInvalid, err.Error())
+		case errors.Is(err, repository.ErrInviteExpired):
+			response.Fail(c, http.StatusBadRequest, response.ErrInviteInvalid, err.Error())
+		case errors.Is(err, repository.ErrUsernameExists):
+			response.Fail(c, http.StatusConflict, response.ErrDuplicate, err.Error())
+		default:
+			response.Fail(c, http.StatusBadRequest, response.ErrInviteInvalid, "invalid invite code")
+		}
 		return
 	}
-
-	repository.MarkInviteUsed(req.InviteCode, user.ID)
-	repository.CopyGlobalSourcesToUser(user.ID)
 
 	response.OK(c, gin.H{
 		"user_id":  user.ID,
