@@ -156,6 +156,17 @@ func (h *AdminHandler) CreateGlobalSource(c *gin.Context) {
 		return
 	}
 
+	if err := validateSourceURL(req.APIUrl); err != nil {
+		response.Fail(c, http.StatusBadRequest, response.ErrBadRequest, "invalid api_url: "+err.Error())
+		return
+	}
+	if req.DetailUrl != "" {
+		if err := validateSourceURL(req.DetailUrl); err != nil {
+			response.Fail(c, http.StatusBadRequest, response.ErrBadRequest, "invalid detail_url: "+err.Error())
+			return
+		}
+	}
+
 	if _, err := repository.GetGlobalSourceByKey(req.Key); err == nil {
 		response.Fail(c, http.StatusConflict, response.ErrDuplicate, "source key already exists")
 		return
@@ -193,9 +204,19 @@ func (h *AdminHandler) UpdateGlobalSource(c *gin.Context) {
 		source.Name = *req.Name
 	}
 	if req.APIUrl != nil {
+		if err := validateSourceURL(*req.APIUrl); err != nil {
+			response.Fail(c, http.StatusBadRequest, response.ErrBadRequest, "invalid api_url: "+err.Error())
+			return
+		}
 		source.APIUrl = *req.APIUrl
 	}
 	if req.DetailUrl != nil {
+		if *req.DetailUrl != "" {
+			if err := validateSourceURL(*req.DetailUrl); err != nil {
+				response.Fail(c, http.StatusBadRequest, response.ErrBadRequest, "invalid detail_url: "+err.Error())
+				return
+			}
+		}
 		source.DetailUrl = *req.DetailUrl
 	}
 	if req.Disabled != nil {

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"net/url"
 
 	"github.com/gin-gonic/gin"
 	"github.com/moontv/server/internal/model"
@@ -29,6 +30,23 @@ type sortRequest struct {
 	Keys []string `json:"keys" binding:"required"`
 }
 
+func validateSourceURL(raw string) error {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return err
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return errInvalidScheme
+	}
+	return nil
+}
+
+var errInvalidScheme = &sourceValidationError{"only http and https schemes are allowed"}
+
+type sourceValidationError struct{ msg string }
+
+func (e *sourceValidationError) Error() string { return e.msg }
+
 func (h *SourceHandler) List(c *gin.Context) {
 	userID := getUserID(c)
 	sources, err := repository.GetSourcesByUserID(userID)
@@ -45,6 +63,17 @@ func (h *SourceHandler) Create(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Fail(c, http.StatusBadRequest, response.ErrBadRequest, "invalid request")
 		return
+	}
+
+	if err := validateSourceURL(req.APIUrl); err != nil {
+		response.Fail(c, http.StatusBadRequest, response.ErrBadRequest, "invalid api_url: "+err.Error())
+		return
+	}
+	if req.DetailUrl != "" {
+		if err := validateSourceURL(req.DetailUrl); err != nil {
+			response.Fail(c, http.StatusBadRequest, response.ErrBadRequest, "invalid detail_url: "+err.Error())
+			return
+		}
 	}
 
 	if _, err := repository.GetSourceByKey(userID, req.Key); err == nil {
@@ -86,9 +115,19 @@ func (h *SourceHandler) Update(c *gin.Context) {
 		source.Name = *req.Name
 	}
 	if req.APIUrl != nil {
+		if err := validateSourceURL(*req.APIUrl); err != nil {
+			response.Fail(c, http.StatusBadRequest, response.ErrBadRequest, "invalid api_url: "+err.Error())
+			return
+		}
 		source.APIUrl = *req.APIUrl
 	}
 	if req.DetailUrl != nil {
+		if *req.DetailUrl != "" {
+			if err := validateSourceURL(*req.DetailUrl); err != nil {
+				response.Fail(c, http.StatusBadRequest, response.ErrBadRequest, "invalid detail_url: "+err.Error())
+				return
+			}
+		}
 		source.DetailUrl = *req.DetailUrl
 	}
 	if req.Disabled != nil {

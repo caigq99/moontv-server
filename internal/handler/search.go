@@ -1,10 +1,14 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/gin-gonic/gin"
@@ -16,15 +20,23 @@ import (
 	"github.com/moontv/server/pkg/upstream"
 )
 
+const maxConcurrentSourceSearches = 4
+
 type SearchHandler struct {
 	Cache *cache.SearchCache
 }
 
 type sourceResult struct {
-	Source     string                 `json:"source"`
-	SourceName string                `json:"source_name"`
-	Results   []upstream.SearchResult `json:"results"`
-	PageCount int                    `json:"page_count"`
+	Source     string                  `json:"source"`
+	SourceName string                 `json:"source_name"`
+	Results    []upstream.SearchResult `json:"results"`
+	PageCount int                     `json:"page_count"`
+}
+
+type sourceErrorEvent struct {
+	Source     string `json:"source"`
+	SourceName string `json:"source_name"`
+	ErrorType  string `json:"error_type"`
 }
 
 func (h *SearchHandler) Search(c *gin.Context) {
@@ -47,11 +59,12 @@ func (h *SearchHandler) Search(c *gin.Context) {
 		return
 	}
 
-	results := h.searchSources(sources, query, page, yellowFilter)
+	results := h.searchSources(c.Request.Context(), userID, sources, query, page, yellowFilter)
 	response.OK(c, results)
 }
 
 func (h *SearchHandler) SearchSSE(c *gin.Context) {
+	ctx := c.Request.Context()
 	userID := getUserID(c)
 	query := c.Query("q")
 	if query == "" {
@@ -71,40 +84,60 @@ func (h *SearchHandler) SearchSSE(c *gin.Context) {
 	c.Writer.Header().Set("Connection", "keep-alive")
 	c.Writer.Header().Set("X-Accel-Buffering", "no")
 
+	sem := make(chan struct{}, maxConcurrentSourceSearches)
+
 	type sseEvent struct {
-		data []byte
-		err  bool
+		event string
+		data  []byte
 	}
 
 	ch := make(chan sseEvent, len(sources))
 	for _, src := range sources {
 		go func(src model.Source) {
-			results, pageCount, searchErr := h.searchOneSource(src, query, 1)
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				return
+			}
+
+			results, pageCount, searchErr := h.searchOneSource(ctx, userID, src, query, 1)
 			if searchErr != nil {
-				ch <- sseEvent{err: true}
+				data, _ := json.Marshal(sourceErrorEvent{
+					Source:     src.Key,
+					SourceName: src.Name,
+					ErrorType:  classifySearchError(searchErr),
+				})
+				select {
+				case ch <- sseEvent{event: "source_error", data: data}:
+				case <-ctx.Done():
+				}
 				return
 			}
 			filtered := filterYellow(results, yellowFilter)
 			data, _ := json.Marshal(sourceResult{
 				Source:     src.Key,
 				SourceName: src.Name,
-				Results:   filtered,
-				PageCount: pageCount,
+				Results:    filtered,
+				PageCount:  pageCount,
 			})
-			ch <- sseEvent{data: data}
+			select {
+			case ch <- sseEvent{event: "message", data: data}:
+			case <-ctx.Done():
+			}
 		}(src)
 	}
 
 	received := 0
-	ctx := c.Request.Context()
 	for received < len(sources) {
 		select {
 		case evt := <-ch:
 			received++
-			if evt.err {
-				continue
+			if evt.event == "source_error" {
+				fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", evt.event, evt.data)
+			} else {
+				fmt.Fprintf(c.Writer, "data: %s\n\n", evt.data)
 			}
-			fmt.Fprintf(c.Writer, "data: %s\n\n", evt.data)
 			c.Writer.(http.Flusher).Flush()
 		case <-ctx.Done():
 			return
@@ -133,7 +166,7 @@ func (h *SearchHandler) Detail(c *gin.Context) {
 		}
 	}
 
-	result, err := upstream.GetDetail(src.APIUrl, src.DetailUrl, src.Key, src.Name, id)
+	result, err := upstream.GetDetail(c.Request.Context(), src.APIUrl, src.DetailUrl, src.Key, src.Name, id)
 	if err != nil {
 		response.Fail(c, http.StatusInternalServerError, response.ErrInternal, "failed to get detail")
 		return
@@ -161,7 +194,7 @@ func (h *SearchHandler) Suggest(c *gin.Context) {
 		limit = len(sources)
 	}
 
-	results := h.searchSources(sources[:limit], query, 1, true)
+	results := h.searchSources(c.Request.Context(), userID, sources[:limit], query, 1, true)
 
 	seen := make(map[string]bool)
 	var titles []string
@@ -183,16 +216,25 @@ func (h *SearchHandler) Suggest(c *gin.Context) {
 	response.OK(c, titles)
 }
 
-func (h *SearchHandler) searchSources(sources []model.Source, query string, page int, yellowFilter bool) []sourceResult {
+func (h *SearchHandler) searchSources(ctx context.Context, userID uint, sources []model.Source, query string, page int, yellowFilter bool) []sourceResult {
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	var results []sourceResult
+	sem := make(chan struct{}, maxConcurrentSourceSearches)
 
 	for _, src := range sources {
 		wg.Add(1)
 		go func(src model.Source) {
 			defer wg.Done()
-			searchResults, pageCount, err := h.searchOneSource(src, query, page)
+
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				return
+			}
+
+			searchResults, pageCount, err := h.searchOneSource(ctx, userID, src, query, page)
 			if err != nil {
 				return
 			}
@@ -201,8 +243,8 @@ func (h *SearchHandler) searchSources(sources []model.Source, query string, page
 			results = append(results, sourceResult{
 				Source:     src.Key,
 				SourceName: src.Name,
-				Results:   filtered,
-				PageCount: pageCount,
+				Results:    filtered,
+				PageCount:  pageCount,
 			})
 			mu.Unlock()
 		}(src)
@@ -212,18 +254,45 @@ func (h *SearchHandler) searchSources(sources []model.Source, query string, page
 	return results
 }
 
-func (h *SearchHandler) searchOneSource(src model.Source, query string, page int) ([]upstream.SearchResult, int, error) {
-	if cached, pageCount, ok := h.Cache.Get(src.Key, query, page); ok {
+func (h *SearchHandler) searchOneSource(ctx context.Context, userID uint, src model.Source, query string, page int) ([]upstream.SearchResult, int, error) {
+	if cached, pageCount, ok := h.Cache.Get(userID, src.Key, query, page); ok {
 		return cached, pageCount, nil
 	}
 
-	results, pageCount, err := upstream.SearchPage(src.APIUrl, src.Key, src.Name, query, page)
+	results, pageCount, err := upstream.SearchPage(ctx, src.APIUrl, src.Key, src.Name, query, page)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	h.Cache.Set(src.Key, query, page, results, pageCount)
+	h.Cache.Set(userID, src.Key, query, page, results, pageCount)
 	return results, pageCount, nil
+}
+
+func classifySearchError(err error) string {
+	if err == nil {
+		return "unknown"
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return "timeout"
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return "timeout"
+	}
+
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "private ip blocked") || strings.Contains(msg, "private hostname blocked"):
+		return "private_ip_blocked"
+	case strings.Contains(msg, "response too large"):
+		return "response_too_large"
+	case strings.Contains(msg, "invalid character") || strings.Contains(msg, "cannot unmarshal") || strings.Contains(msg, "unexpected end of json input"):
+		return "parse_error"
+	case strings.Contains(msg, "status ") || strings.Contains(msg, "dns lookup failed") || strings.Contains(msg, "unsupported scheme"):
+		return "upstream_error"
+	default:
+		return "unknown"
+	}
 }
 
 func filterYellow(results []upstream.SearchResult, enabled bool) []upstream.SearchResult {

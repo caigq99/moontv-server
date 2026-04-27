@@ -1,26 +1,28 @@
 package upstream
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"regexp"
 	"strings"
 )
 
 var m3u8Pattern = regexp.MustCompile(`https?://[^"'\s]+?\.m3u8`)
 
-func GetDetail(apiURL, detailURL, sourceKey, sourceName, id string) (*SearchResult, error) {
+func GetDetail(ctx context.Context, apiURL, detailURL, sourceKey, sourceName, id string) (*SearchResult, error) {
 	if detailURL != "" {
-		return getDetailFromHTML(detailURL, sourceKey, sourceName, id)
+		return getDetailFromHTML(ctx, detailURL, sourceKey, sourceName, id)
 	}
-	return getDetailFromAPI(apiURL, sourceKey, sourceName, id)
+	return getDetailFromAPI(ctx, apiURL, sourceKey, sourceName, id)
 }
 
-func getDetailFromAPI(apiURL, sourceKey, sourceName, id string) (*SearchResult, error) {
+func getDetailFromAPI(ctx context.Context, apiURL, sourceKey, sourceName, id string) (*SearchResult, error) {
 	base := normalizeAPIURL(apiURL)
 	reqURL := fmt.Sprintf("%s?ac=videolist&ids=%s", base, id)
-	req, err := newRequest(reqURL)
+	req, err := newRequest(ctx, reqURL)
 	if err != nil {
 		return nil, err
 	}
@@ -31,7 +33,12 @@ func getDetailFromAPI(apiURL, sourceKey, sourceName, id string) (*SearchResult, 
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		io.Copy(io.Discard, resp.Body)
+		return nil, fmt.Errorf("status %d", resp.StatusCode)
+	}
+
+	body, err := readBodyLimited(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +74,7 @@ func getDetailFromAPI(apiURL, sourceKey, sourceName, id string) (*SearchResult, 
 		Episodes:       episodes,
 		EpisodesTitles: titles,
 		Source:         sourceKey,
-		SourceName:    sourceName,
+		SourceName:     sourceName,
 		Class:          item.VodClass,
 		Year:           year,
 		Desc:           cleanHTML(item.VodContent),
@@ -75,9 +82,9 @@ func getDetailFromAPI(apiURL, sourceKey, sourceName, id string) (*SearchResult, 
 	}, nil
 }
 
-func getDetailFromHTML(detailURL, sourceKey, sourceName, id string) (*SearchResult, error) {
+func getDetailFromHTML(ctx context.Context, detailURL, sourceKey, sourceName, id string) (*SearchResult, error) {
 	reqURL := fmt.Sprintf("%s/index.php/vod/detail/id/%s.html", detailURL, id)
-	req, err := newRequest(reqURL)
+	req, err := newRequest(ctx, reqURL)
 	if err != nil {
 		return nil, err
 	}
@@ -88,14 +95,18 @@ func getDetailFromHTML(detailURL, sourceKey, sourceName, id string) (*SearchResu
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		io.Copy(io.Discard, resp.Body)
+		return nil, fmt.Errorf("status %d", resp.StatusCode)
+	}
+
+	body, err := readBodyLimited(resp.Body)
 	if err != nil {
 		return nil, err
 	}
 
 	html := string(body)
 
-	// extract m3u8 links
 	pattern := regexp.MustCompile(`\$(https?://[^"'\s]+?\.m3u8)`)
 	matches := pattern.FindAllStringSubmatch(html, -1)
 	seen := make(map[string]bool)
@@ -116,17 +127,14 @@ func getDetailFromHTML(detailURL, sourceKey, sourceName, id string) (*SearchResu
 		titles[i] = fmt.Sprintf("%d", i+1)
 	}
 
-	// extract title
 	titleMatch := regexp.MustCompile(`<h1[^>]*>([^<]+)</h1>`).FindStringSubmatch(html)
 	title := ""
 	if len(titleMatch) > 1 {
 		title = strings.TrimSpace(titleMatch[1])
 	}
 
-	// extract cover
 	coverMatch := regexp.MustCompile(`(https?://[^"'\s]+?\.jpg)`).FindString(html)
 
-	// extract year
 	yearMatch := regexp.MustCompile(`>(\d{4})<`).FindStringSubmatch(html)
 	year := "unknown"
 	if len(yearMatch) > 1 {
@@ -140,7 +148,7 @@ func getDetailFromHTML(detailURL, sourceKey, sourceName, id string) (*SearchResu
 		Episodes:       episodes,
 		EpisodesTitles: titles,
 		Source:         sourceKey,
-		SourceName:    sourceName,
+		SourceName:     sourceName,
 		Year:           year,
 	}, nil
 }

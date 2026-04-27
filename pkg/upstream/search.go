@@ -1,6 +1,7 @@
 package upstream
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,7 +17,7 @@ type SearchResult struct {
 	Episodes       []string `json:"episodes"`
 	EpisodesTitles []string `json:"episodes_titles"`
 	Source         string   `json:"source"`
-	SourceName    string   `json:"source_name"`
+	SourceName     string   `json:"source_name"`
 	Class          string   `json:"class,omitempty"`
 	Year           string   `json:"year"`
 	Desc           string   `json:"desc,omitempty"`
@@ -29,23 +30,23 @@ type apiResponse struct {
 }
 
 type apiItem struct {
-	VodID       json.Number `json:"vod_id"`
-	VodName     string      `json:"vod_name"`
-	VodPic      string      `json:"vod_pic"`
-	VodPlayURL  string      `json:"vod_play_url"`
-	VodClass    string      `json:"vod_class"`
-	VodYear     string      `json:"vod_year"`
-	VodContent  string      `json:"vod_content"`
-	TypeName    string      `json:"type_name"`
+	VodID      json.Number `json:"vod_id"`
+	VodName    string      `json:"vod_name"`
+	VodPic     string      `json:"vod_pic"`
+	VodPlayURL string      `json:"vod_play_url"`
+	VodClass   string      `json:"vod_class"`
+	VodYear    string      `json:"vod_year"`
+	VodContent string      `json:"vod_content"`
+	TypeName   string      `json:"type_name"`
 }
 
 var yearPattern = regexp.MustCompile(`\d{4}`)
 var htmlTagPattern = regexp.MustCompile(`<[^>]+>`)
 
-func SearchFromAPI(apiURL, sourceKey, sourceName, query string, maxPages int) ([]SearchResult, error) {
+func SearchFromAPI(ctx context.Context, apiURL, sourceKey, sourceName, query string, maxPages int) ([]SearchResult, error) {
 	base := normalizeAPIURL(apiURL)
 	firstURL := fmt.Sprintf("%s?ac=videolist&wd=%s", base, url.QueryEscape(query))
-	results, pageCount, err := doSearch(firstURL, sourceKey, sourceName)
+	results, pageCount, err := doSearch(ctx, firstURL, sourceKey, sourceName)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +58,7 @@ func SearchFromAPI(apiURL, sourceKey, sourceName, query string, maxPages int) ([
 
 	for page := 2; page <= pages; page++ {
 		pageURL := fmt.Sprintf("%s?ac=videolist&wd=%s&pg=%d", base, url.QueryEscape(query), page)
-		pageResults, _, err := doSearch(pageURL, sourceKey, sourceName)
+		pageResults, _, err := doSearch(ctx, pageURL, sourceKey, sourceName)
 		if err != nil {
 			continue
 		}
@@ -67,8 +68,8 @@ func SearchFromAPI(apiURL, sourceKey, sourceName, query string, maxPages int) ([
 	return results, nil
 }
 
-func doSearch(apiURL, sourceKey, sourceName string) ([]SearchResult, int, error) {
-	req, err := newRequest(apiURL)
+func doSearch(ctx context.Context, apiURL, sourceKey, sourceName string) ([]SearchResult, int, error) {
+	req, err := newRequest(ctx, apiURL)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -84,7 +85,7 @@ func doSearch(apiURL, sourceKey, sourceName string) ([]SearchResult, int, error)
 		return nil, 0, fmt.Errorf("status %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := readBodyLimited(resp.Body)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -113,7 +114,7 @@ func doSearch(apiURL, sourceKey, sourceName string) ([]SearchResult, int, error)
 			Episodes:       episodes,
 			EpisodesTitles: titles,
 			Source:         sourceKey,
-			SourceName:    sourceName,
+			SourceName:     sourceName,
 			Class:          item.VodClass,
 			Year:           year,
 			Desc:           cleanHTML(item.VodContent),
@@ -151,10 +152,10 @@ func parsePlayURL(vodPlayURL string) ([]string, []string) {
 	return bestEpisodes, bestTitles
 }
 
-func SearchPage(apiURL, sourceKey, sourceName, query string, page int) ([]SearchResult, int, error) {
+func SearchPage(ctx context.Context, apiURL, sourceKey, sourceName, query string, page int) ([]SearchResult, int, error) {
 	base := normalizeAPIURL(apiURL)
 	pageURL := fmt.Sprintf("%s?ac=videolist&wd=%s&pg=%d", base, url.QueryEscape(query), page)
-	return doSearch(pageURL, sourceKey, sourceName)
+	return doSearch(ctx, pageURL, sourceKey, sourceName)
 }
 
 func cleanHTML(text string) string {
