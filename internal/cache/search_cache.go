@@ -25,12 +25,12 @@ func NewSearchCache(ttl time.Duration) *SearchCache {
 	return c
 }
 
-func (c *SearchCache) makeKey(sourceKey, query string, page int) string {
-	return sourceKey + "::" + query + "::" + strconv.Itoa(page)
+func (c *SearchCache) makeKey(userID uint, sourceKey, query string, page int) string {
+	return strconv.FormatUint(uint64(userID), 10) + "::" + sourceKey + "::" + query + "::" + strconv.Itoa(page)
 }
 
-func (c *SearchCache) Get(sourceKey, query string, page int) ([]upstream.SearchResult, int, bool) {
-	key := c.makeKey(sourceKey, query, page)
+func (c *SearchCache) Get(userID uint, sourceKey, query string, page int) ([]upstream.SearchResult, int, bool) {
+	key := c.makeKey(userID, sourceKey, query, page)
 	val, ok := c.data.Load(key)
 	if !ok {
 		return nil, 0, false
@@ -43,8 +43,8 @@ func (c *SearchCache) Get(sourceKey, query string, page int) ([]upstream.SearchR
 	return e.results, e.pageCount, true
 }
 
-func (c *SearchCache) Set(sourceKey, query string, page int, results []upstream.SearchResult, pageCount int) {
-	key := c.makeKey(sourceKey, query, page)
+func (c *SearchCache) Set(userID uint, sourceKey, query string, page int, results []upstream.SearchResult, pageCount int) {
+	key := c.makeKey(userID, sourceKey, query, page)
 	c.data.Store(key, &entry{
 		results:   results,
 		pageCount: pageCount,
