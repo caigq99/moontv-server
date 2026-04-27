@@ -11,6 +11,9 @@ import (
 
 func main() {
 	cfg := config.Load()
+	if err := cfg.Validate(); err != nil {
+		log.Fatalf("config error: %v", err)
+	}
 
 	database.Init(cfg.DBPath)
 	database.Seed(cfg.AdminUsername, cfg.AdminPassword)

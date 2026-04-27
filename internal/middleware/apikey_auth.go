@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"crypto/subtle"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -14,10 +15,7 @@ func APIKeyAuth(secret []byte, prefix string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		key := c.GetHeader("X-API-Key")
 		if key == "" {
-			key = c.Query("apikey")
-		}
-		if key == "" {
-			response.Fail(c, http.StatusUnauthorized, response.ErrNoAPIKey, "missing api key")
+			response.Fail(c, http.StatusUnauthorized, response.ErrNoAPIKey, "missing api key header")
 			c.Abort()
 			return
 		}
@@ -44,6 +42,13 @@ func APIKeyAuth(secret []byte, prefix string) gin.HandlerFunc {
 
 		if user.APIKeyCipher == "" {
 			response.Fail(c, http.StatusUnauthorized, response.ErrInvalidAPIKey, "api key revoked")
+			c.Abort()
+			return
+		}
+
+		providedCipher := key[len(prefix):]
+		if subtle.ConstantTimeCompare([]byte(user.APIKeyCipher), []byte(providedCipher)) != 1 {
+			response.Fail(c, http.StatusUnauthorized, response.ErrInvalidAPIKey, "invalid api key")
 			c.Abort()
 			return
 		}
