@@ -41,13 +41,19 @@
   }
 
   // ── Modal ──
+  let lastFocus = null;
   function openModal(title, bodyHTML) {
+    lastFocus = document.activeElement;
     $('#modal-title').textContent = title;
     $('#modal-body').innerHTML = bodyHTML;
     $('#modal-overlay').classList.remove('hidden');
+    $('#modal-overlay').setAttribute('aria-hidden', 'false');
+    setTimeout(() => $('#modal-close').focus(), 50);
   }
   function closeModal() {
     $('#modal-overlay').classList.add('hidden');
+    $('#modal-overlay').setAttribute('aria-hidden', 'true');
+    if (lastFocus) lastFocus.focus();
   }
 
   // ── Auth ──
@@ -97,12 +103,22 @@
     route();
   }
 
+  // ── Page Header Helper ──
+  function pageHeader(title, extra = '') {
+    return `<div class="page-header">
+      <button class="btn-icon mobile-menu-toggle" onclick="App.toggleSidebar(true)" aria-label="打开菜单" aria-expanded="false">&#9776;</button>
+      <h2>${title}</h2>
+      ${extra}
+    </div>`;
+  }
+
   // ── Router ──
   const routes = {
     '#/': renderDashboard,
     '#/users': renderUsers,
     '#/invites': renderInvites,
     '#/sources': renderSources,
+    '#/search-test': renderSearchTest,
     '#/account': renderAccount,
     '#/docs': renderDocs,
   };
@@ -111,6 +127,7 @@
     const hash = location.hash || '#/';
     const render = routes[hash] || renderDashboard;
     $$('.nav-item').forEach(el => el.classList.toggle('active', el.getAttribute('href') === hash));
+    if (window.innerWidth <= 768) App.toggleSidebar(false);
     render($('#content'));
   }
 
@@ -118,7 +135,7 @@
 
   // Dashboard
   async function renderDashboard(el) {
-    el.innerHTML = '<div class="page-header"><h2>仪表盘</h2></div><div class="stats-grid" id="stats-grid">加载中...</div>';
+    el.innerHTML = pageHeader('仪表盘') + '<div class="stats-grid" id="stats-grid">加载中...</div>';
     try {
       const s = await api.get('/admin/stats');
       $('#stats-grid').innerHTML = `
@@ -136,7 +153,7 @@
   // Users
   let usersPage = 1;
   async function renderUsers(el) {
-    el.innerHTML = '<div class="page-header"><h2>用户管理</h2></div><div id="users-table">加载中...</div>';
+    el.innerHTML = pageHeader('用户管理') + '<div id="users-table">加载中...</div>';
     await loadUsers();
   }
 
@@ -189,12 +206,7 @@
   // Invites
   let invitesPage = 1;
   async function renderInvites(el) {
-    el.innerHTML = `
-      <div class="page-header">
-        <h2>邀请码管理</h2>
-        <button class="btn btn-primary" onclick="App.showGenInvites()">生成邀请码</button>
-      </div>
-      <div id="invites-table">加载中...</div>`;
+    el.innerHTML = pageHeader('邀请码管理', '<button class="btn btn-primary" onclick="App.showGenInvites()">生成邀请码</button>') + '<div id="invites-table">加载中...</div>';
     await loadInvites();
   }
 
@@ -251,15 +263,7 @@
 
   // Global Sources
   async function renderSources(el) {
-    el.innerHTML = `
-      <div class="page-header">
-        <h2>全局采集源</h2>
-        <div class="btn-group">
-          <button class="btn btn-outline" onclick="App.showSortSources()">排序</button>
-          <button class="btn btn-primary" onclick="App.showAddSource()">添加源</button>
-        </div>
-      </div>
-      <div id="sources-table">加载中...</div>`;
+    el.innerHTML = pageHeader('全局采集源', '<div class="btn-group"><button class="btn btn-outline" onclick="App.showSortSources()">排序</button><button class="btn btn-primary" onclick="App.showAddSource()">添加源</button></div>') + '<div id="sources-table">加载中...</div>';
     await loadSources();
   }
 
@@ -298,10 +302,26 @@
     }
   }
 
+  // Search Test (SSE via fetch + ReadableStream)
+  let searchAbortController = null;
+  async function renderSearchTest(el) {
+    el.innerHTML = pageHeader('搜索测试') + `
+      <div class="card">
+        <form class="inline-form" id="search-test-form">
+          <div class="form-group"><label for="search-test-q">关键词</label><input type="text" id="search-test-q" required aria-required="true"></div>
+          <div class="form-group"><label for="search-test-apikey">API Key</label><input type="text" id="search-test-apikey" required aria-required="true" placeholder="mtv_..."></div>
+          <button type="submit" class="btn btn-primary" id="search-test-btn">搜索</button>
+        </form>
+        <p style="margin-top:10px;font-size:12px;color:var(--text-light)">API Key 可在"我的账号"页面生成后复制粘贴到这里。</p>
+      </div>
+      <div id="search-test-results" style="display:flex;flex-direction:column;gap:12px"></div>`;
+
+    $('#search-test-form').onsubmit = (e) => App.startSearchTest(e);
+  }
+
   // Account
   async function renderAccount(el) {
-    el.innerHTML = `
-      <div class="page-header"><h2>我的账号</h2></div>
+    el.innerHTML = pageHeader('我的账号') + `
       <div class="card">
         <h3>账号信息</h3>
         <p><strong>用户名：</strong>${esc(state.user.username)}</p>
@@ -322,8 +342,7 @@
   // API Docs
   function renderDocs(el) {
     const baseURL = location.origin;
-    el.innerHTML = `
-      <div class="page-header"><h2>API 对接文档</h2></div>
+    el.innerHTML = pageHeader('API 对接文档') + `
 
       <div class="doc-toc">
         <h4>目录</h4>
@@ -353,7 +372,7 @@
 }</div>
           <p class="doc-label">认证方式</p>
           <table class="doc-params">
-            <tr><td><span class="doc-auth-badge apikey">API Key</span></td><td>外部接口调用，通过 <code>X-API-Key</code> 请求头或 <code>?apikey=</code> 查询参数传递</td></tr>
+            <tr><td><span class="doc-auth-badge apikey">API Key</span></td><td>外部接口调用，通过 <code>X-API-Key</code> 请求头传递</td></tr>
             <tr><td><span class="doc-auth-badge jwt">JWT</span></td><td>管理面板操作，通过 <code>Authorization: Bearer &lt;token&gt;</code> 请求头传递</td></tr>
             <tr><td><span class="doc-auth-badge admin">Admin</span></td><td>需要 JWT 认证 + 管理员角色</td></tr>
             <tr><td><span class="doc-auth-badge public">Public</span></td><td>无需认证</td></tr>
@@ -455,14 +474,14 @@
           response: `event: message
 data: {"source":"feifan","source_name":"非凡","page_count":5,"results":[...]}
 
-event: message
-data: {"source":"jisu","source_name":"极速","page_count":3,"results":[...]}
+event: source_error
+data: {"source":"jisu","source_name":"极速","error_type":"timeout"}
 
 event: done
 data: {}`,
           curl: `curl -N "${esc(baseURL)}/api/search/sse?q=情感价值" \\
   -H "X-API-Key: mtv_your_api_key"`,
-          note: '使用 Server-Sent Events 协议，每个源返回结果时立即推送一条 data 事件，全部完成后发送 done 事件。适合前端实时展示搜索进度。'
+          note: '使用 Server-Sent Events 协议。每个源返回结果时发送 data 事件，失败时发送 source_error 事件，全部完成后发送 done 事件。需通过 X-API-Key 请求头传递 API Key。'
         })}
 
         ${docEndpoint('GET', '/api/detail', '获取视频详情', 'apikey', {
@@ -819,11 +838,11 @@ data: {}`,
       openModal('生成邀请码', `
         <form id="gen-invite-form">
           <div class="form-group">
-            <label>数量</label>
+            <label for="invite-count">数量</label>
             <input type="number" id="invite-count" value="5" min="1" max="50" required>
           </div>
           <div class="form-group">
-            <label>有效天数（0 = 永不过期）</label>
+            <label for="invite-days">有效天数（0 = 永不过期）</label>
             <input type="number" id="invite-days" value="7" min="0">
           </div>
           <button type="submit" class="btn btn-primary btn-block">生成</button>
@@ -856,10 +875,10 @@ data: {}`,
     showAddSource() {
       openModal('添加采集源', `
         <form id="add-source-form">
-          <div class="form-group"><label>Key（唯一标识）</label><input type="text" id="src-key" required></div>
-          <div class="form-group"><label>名称</label><input type="text" id="src-name" required></div>
-          <div class="form-group"><label>API URL</label><input type="url" id="src-apiurl" required></div>
-          <div class="form-group"><label>Detail URL（可选）</label><input type="url" id="src-detailurl"></div>
+          <div class="form-group"><label for="src-key">Key（唯一标识）</label><input type="text" id="src-key" required></div>
+          <div class="form-group"><label for="src-name">名称</label><input type="text" id="src-name" required></div>
+          <div class="form-group"><label for="src-apiurl">API URL</label><input type="url" id="src-apiurl" required></div>
+          <div class="form-group"><label for="src-detailurl">Detail URL（可选）</label><input type="url" id="src-detailurl"></div>
           <button type="submit" class="btn btn-primary btn-block">添加</button>
         </form>
       `);
@@ -884,9 +903,9 @@ data: {}`,
       openModal('编辑采集源', `
         <form id="edit-source-form">
           <div class="form-group"><label>Key</label><input type="text" value="${esc(src.key)}" disabled></div>
-          <div class="form-group"><label>名称</label><input type="text" id="edit-name" value="${esc(src.name)}" required></div>
-          <div class="form-group"><label>API URL</label><input type="url" id="edit-apiurl" value="${esc(src.api_url)}" required></div>
-          <div class="form-group"><label>Detail URL</label><input type="url" id="edit-detailurl" value="${esc(src.detail_url || '')}"></div>
+          <div class="form-group"><label for="edit-name">名称</label><input type="text" id="edit-name" value="${esc(src.name)}" required></div>
+          <div class="form-group"><label for="edit-apiurl">API URL</label><input type="url" id="edit-apiurl" value="${esc(src.api_url)}" required></div>
+          <div class="form-group"><label for="edit-detailurl">Detail URL</label><input type="url" id="edit-detailurl" value="${esc(src.detail_url || '')}"></div>
           <div class="form-group">
             <label><input type="checkbox" id="edit-disabled" ${src.disabled ? 'checked' : ''}> 禁用</label>
           </div>
@@ -940,7 +959,6 @@ data: {}`,
       if (newIdx < 0 || newIdx >= items.length) return;
       if (dir === -1) list.insertBefore(items[idx], items[newIdx]);
       else list.insertBefore(items[newIdx], items[idx]);
-      // Re-bind indices
       Array.from(list.children).forEach((li, i) => {
         const btns = li.querySelectorAll('.sort-btns button');
         btns[0].setAttribute('onclick', `App.sortMove(${i},-1)`);
@@ -980,6 +998,99 @@ data: {}`,
       } catch (e) { toast(e.message, 'error'); }
     },
 
+    // Mobile Sidebar
+    toggleSidebar(show) {
+      const sidebar = $('#sidebar');
+      const overlay = $('#mobile-sidebar-overlay');
+      if (show) {
+        sidebar.classList.add('open');
+        overlay.classList.remove('hidden');
+        $$('.mobile-menu-toggle').forEach(el => el.setAttribute('aria-expanded', 'true'));
+      } else {
+        sidebar.classList.remove('open');
+        overlay.classList.add('hidden');
+        $$('.mobile-menu-toggle').forEach(el => el.setAttribute('aria-expanded', 'false'));
+      }
+    },
+
+    // SSE Search Test
+    async startSearchTest(e) {
+      e.preventDefault();
+      if (searchAbortController) searchAbortController.abort();
+      searchAbortController = new AbortController();
+
+      const q = $('#search-test-q').value.trim();
+      const apikey = $('#search-test-apikey').value.trim();
+      const container = $('#search-test-results');
+      const btn = $('#search-test-btn');
+
+      container.innerHTML = '<div class="empty">正在连接资源节点...</div>';
+      btn.disabled = true;
+      btn.textContent = '搜索中...';
+
+      try {
+        const response = await fetch('/api/search/sse?q=' + encodeURIComponent(q), {
+          headers: { 'X-API-Key': apikey },
+          signal: searchAbortController.signal
+        });
+
+        if (!response.ok) {
+          const errData = await response.json().catch(() => null);
+          throw new Error(errData?.message || ('请求失败: ' + response.status));
+        }
+
+        container.innerHTML = '';
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+        let eventType = 'message';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+
+          const lines = buffer.split('\n');
+          buffer = lines.pop();
+
+          for (const line of lines) {
+            if (line.startsWith('event: ')) {
+              eventType = line.substring(7).trim();
+            } else if (line.startsWith('data: ')) {
+              const dataStr = line.substring(6).trim();
+              if (eventType === 'message') {
+                try {
+                  const data = JSON.parse(dataStr);
+                  const card = document.createElement('div');
+                  card.className = 'card';
+                  card.innerHTML = `<h3>${esc(data.source_name)} <small class="badge badge-success">${data.results.length}个结果</small></h3>
+                    <div style="font-size:13px;color:var(--text-light)">共 ${data.page_count} 页</div>`;
+                  container.appendChild(card);
+                } catch {}
+              } else if (eventType === 'source_error') {
+                try {
+                  const data = JSON.parse(dataStr);
+                  const card = document.createElement('div');
+                  card.className = 'card';
+                  card.innerHTML = `<h3>${esc(data.source_name)} <small class="badge badge-danger">失败</small></h3>
+                    <div style="font-size:13px;color:var(--danger)">错误: ${esc(data.error_type)}</div>`;
+                  container.appendChild(card);
+                } catch {}
+              } else if (eventType === 'done') {
+                toast('搜索完成', 'success');
+              }
+              eventType = 'message';
+            }
+          }
+        }
+      } catch (err) {
+        if (err.name !== 'AbortError') toast(err.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '搜索';
+      }
+    },
+
     // Util
     copyText(text) {
       navigator.clipboard.writeText(text).then(() => toast('已复制', 'success')).catch(() => toast('复制失败', 'error'));
@@ -1008,6 +1119,33 @@ data: {}`,
 
   // ── Init ──
   document.addEventListener('DOMContentLoaded', () => {
+    // Form toggle
+    $('#to-register').addEventListener('click', (e) => {
+      e.preventDefault();
+      $('#login-form').classList.add('hidden');
+      $('#register-form').classList.remove('hidden');
+    });
+    $('#to-login').addEventListener('click', (e) => {
+      e.preventDefault();
+      $('#register-form').classList.add('hidden');
+      $('#login-form').classList.remove('hidden');
+    });
+
+    // Register form
+    $('#register-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try {
+        await api.post('/auth/register', {
+          username: $('#reg-username').value.trim(),
+          password: $('#reg-password').value,
+          invite_code: $('#reg-invite').value.trim()
+        });
+        toast('注册成功，请登录', 'success');
+        $('#register-form').classList.add('hidden');
+        $('#login-form').classList.remove('hidden');
+      } catch (err) { toast(err.message, 'error'); }
+    });
+
     // Login form
     $('#login-form').addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -1030,6 +1168,9 @@ data: {}`,
     $('#modal-overlay').addEventListener('click', (e) => {
       if (e.target === $('#modal-overlay')) closeModal();
     });
+
+    // Mobile overlay
+    $('#mobile-sidebar-overlay').addEventListener('click', () => App.toggleSidebar(false));
 
     // Hash routing
     window.addEventListener('hashchange', () => {

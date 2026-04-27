@@ -14,19 +14,37 @@
         <p class="login-sub">管理面板</p>
         <form id="login-form">
           <div class="form-group">
-            <label>用户名</label>
-            <input type="text" id="login-username" required autocomplete="username">
+            <label for="login-username">用户名</label>
+            <input type="text" id="login-username" required autocomplete="username" aria-required="true">
           </div>
           <div class="form-group">
-            <label>密码</label>
-            <input type="password" id="login-password" required autocomplete="current-password">
+            <label for="login-password">密码</label>
+            <input type="password" id="login-password" required autocomplete="current-password" aria-required="true">
           </div>
           <button type="submit" class="btn btn-primary btn-block">登录</button>
+          <p class="auth-switch">没有账号？<a href="#" id="to-register">使用邀请码注册</a></p>
+        </form>
+        <form id="register-form" class="hidden">
+          <div class="form-group">
+            <label for="reg-username">用户名</label>
+            <input type="text" id="reg-username" required autocomplete="username" minlength="3" aria-required="true">
+          </div>
+          <div class="form-group">
+            <label for="reg-password">密码</label>
+            <input type="password" id="reg-password" required autocomplete="new-password" minlength="6" aria-required="true">
+          </div>
+          <div class="form-group">
+            <label for="reg-invite">邀请码</label>
+            <input type="text" id="reg-invite" required aria-required="true">
+          </div>
+          <button type="submit" class="btn btn-success btn-block">注册</button>
+          <p class="auth-switch">已有账号？<a href="#" id="to-login">返回登录</a></p>
         </form>
       </div>
     </div>
 
     <div id="main-layout" class="hidden">
+      <div id="mobile-sidebar-overlay" class="hidden" aria-hidden="true" tabindex="-1"></div>
       <aside id="sidebar">
         <div class="sidebar-header">
           <h2>MoonTV</h2>
@@ -43,6 +61,9 @@
           </a>
           <a href="#/sources" data-page="sources" class="nav-item admin-only">
             <span class="nav-icon">&#9733;</span>全局源
+          </a>
+          <a href="#/search-test" data-page="search-test" class="nav-item">
+            <span class="nav-icon">&#128269;</span>搜索测试
           </a>
           <a href="#/account" data-page="account" class="nav-item">
             <span class="nav-icon">&#9883;</span>我的账号
@@ -63,12 +84,12 @@
     </div>
   </div>
 
-  <div id="toast-container"></div>
-  <div id="modal-overlay" class="hidden">
-    <div id="modal-box">
+  <div id="toast-container" aria-live="polite" aria-atomic="true"></div>
+  <div id="modal-overlay" class="hidden" aria-hidden="true">
+    <div id="modal-box" role="dialog" aria-modal="true" aria-labelledby="modal-title">
       <div id="modal-header">
         <h3 id="modal-title"></h3>
-        <button id="modal-close" class="btn-icon">&times;</button>
+        <button id="modal-close" class="btn-icon" aria-label="关闭">&times;</button>
       </div>
       <div id="modal-body"></div>
     </div>
